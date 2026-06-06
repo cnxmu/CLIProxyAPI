@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -82,6 +83,79 @@ func TestHealthz(t *testing.T) {
 		}
 		if rr.Body.Len() != 0 {
 			t.Fatalf("expected empty body for HEAD request, got %q", rr.Body.String())
+		}
+	})
+}
+
+func TestPublicAPIAllowPathsRestrictsInferenceRoutes(t *testing.T) {
+	server := newTestServer(t)
+	server.cfg.PublicAPIAllowPaths = []string{
+		"v1/images/generations/",
+		"/v1/images/edits",
+		"/v1/images/generations",
+	}
+
+	t.Run("allowed image generation path stays reachable", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewBufferString(`{"model":"gpt-image-2","prompt":"fox"}`))
+		req.Header.Set("Authorization", "Bearer test-key")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+
+		if rr.Code == http.StatusNotFound {
+			t.Fatalf("status = %d, want non-404 body=%s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("chat completions is blocked", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"hi"}]}`))
+		req.Header.Set("Authorization", "Bearer test-key")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
+		}
+	})
+
+	t.Run("responses is blocked for both post and websocket get", func(t *testing.T) {
+		for _, method := range []string{http.MethodPost, http.MethodGet} {
+			req := httptest.NewRequest(method, "/v1/responses", bytes.NewBufferString(`{"model":"gpt-5.4-mini","input":"hi"}`))
+			req.Header.Set("Authorization", "Bearer test-key")
+			req.Header.Set("Content-Type", "application/json")
+
+			rr := httptest.NewRecorder()
+			server.engine.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("method %s status = %d, want %d body=%s", method, rr.Code, http.StatusNotFound, rr.Body.String())
+			}
+		}
+	})
+
+	t.Run("codex direct responses alias is blocked", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewBufferString(`{"model":"gpt-5.4-mini","input":"hi"}`))
+		req.Header.Set("Authorization", "Bearer test-key")
+		req.Header.Set("Content-Type", "application/json")
+
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusNotFound, rr.Body.String())
+		}
+	})
+
+	t.Run("healthz remains available", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+		rr := httptest.NewRecorder()
+		server.engine.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
 		}
 	})
 }

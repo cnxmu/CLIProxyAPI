@@ -303,6 +303,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	// Home heartbeat gate: when home is enabled, block all endpoints with 503 until the
 	// subscribe-config heartbeat connection is healthy.
 	engine.Use(s.homeHeartbeatMiddleware())
+	engine.Use(s.publicAPIAllowPathsMiddleware())
 
 	// Setup routes
 	s.setupRoutes()
@@ -366,6 +367,68 @@ func (s *Server) homeHeartbeatMiddleware() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func (s *Server) publicAPIAllowPathsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if s == nil || s.cfg == nil || c == nil || c.Request == nil || c.Request.URL == nil {
+			c.Next()
+			return
+		}
+		path := c.Request.URL.Path
+		if !isRestrictablePublicAPIPath(path) {
+			c.Next()
+			return
+		}
+		if publicAPIPathAllowed(s.cfg.PublicAPIAllowPaths, path) {
+			c.Next()
+			return
+		}
+		c.AbortWithStatus(http.StatusNotFound)
+	}
+}
+
+func isRestrictablePublicAPIPath(path string) bool {
+	normalized := config.NormalizePublicAPIPath(path)
+	if normalized == "" {
+		return false
+	}
+	switch {
+	case normalized == "/v1":
+		return true
+	case strings.HasPrefix(normalized, "/v1/"):
+		return true
+	case normalized == "/v1beta":
+		return true
+	case strings.HasPrefix(normalized, "/v1beta/"):
+		return true
+	case normalized == "/backend-api/codex":
+		return true
+	case strings.HasPrefix(normalized, "/backend-api/codex/"):
+		return true
+	case normalized == "/v1internal":
+		return true
+	case strings.HasPrefix(normalized, "/v1internal:"):
+		return true
+	default:
+		return false
+	}
+}
+
+func publicAPIPathAllowed(allowPaths []string, path string) bool {
+	if len(allowPaths) == 0 {
+		return true
+	}
+	normalized := config.NormalizePublicAPIPath(path)
+	if normalized == "" {
+		return false
+	}
+	for _, entry := range allowPaths {
+		if config.NormalizePublicAPIPath(entry) == normalized {
+			return true
+		}
+	}
+	return false
 }
 
 // setupRoutes configures the API routes for the server.

@@ -81,6 +81,7 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.SanitizeClaudeHeaderDefaults()
 	cfg.SanitizeClaudeKeys()
 	cfg.SanitizeOpenAICompatibility()
+	cfg.PublicAPIAllowPaths = NormalizePublicAPIAllowPaths(cfg.PublicAPIAllowPaths)
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
 	cfg.SanitizeOAuthModelAlias()
 	cfg.SanitizePayloadRules()

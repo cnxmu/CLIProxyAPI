@@ -98,6 +98,11 @@ type Config struct {
 	// WebsocketAuth enables or disables authentication for the WebSocket API.
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
 
+	// PublicAPIAllowPaths restricts public inference endpoints to an explicit path allowlist.
+	// When empty, all registered public API routes remain available.
+	// When non-empty, requests to public API paths outside this list return 404.
+	PublicAPIAllowPaths []string `yaml:"public-api-allow-paths,omitempty" json:"public-api-allow-paths,omitempty"`
+
 	// AntigravitySignatureCacheEnabled controls whether signature cache validation is enabled for thinking blocks.
 	// When true (default), cached signatures are preferred and validated.
 	// When false, client signatures are used directly after normalization (bypass mode).
@@ -742,6 +747,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sanitize OpenAI compatibility providers: drop entries without base-url
 	cfg.SanitizeOpenAICompatibility()
 
+	// Normalize configured public API path allowlist.
+	cfg.PublicAPIAllowPaths = NormalizePublicAPIAllowPaths(cfg.PublicAPIAllowPaths)
+
 	// Normalize OAuth provider model exclusion map.
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
 
@@ -1029,6 +1037,49 @@ func NormalizeExcludedModels(models []string) []string {
 		}
 		seen[trimmed] = struct{}{}
 		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// NormalizePublicAPIPath canonicalizes a configured or incoming API path for allowlist checks.
+// It ensures a leading slash and removes trailing slashes except for the root path.
+func NormalizePublicAPIPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		trimmed = "/" + trimmed
+	}
+	if len(trimmed) > 1 {
+		trimmed = strings.TrimRight(trimmed, "/")
+	}
+	if trimmed == "" {
+		return "/"
+	}
+	return trimmed
+}
+
+// NormalizePublicAPIAllowPaths trims, canonicalizes, and deduplicates configured public API allow paths.
+func NormalizePublicAPIAllowPaths(paths []string) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, raw := range paths {
+		normalized := NormalizePublicAPIPath(raw)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
 	}
 	if len(out) == 0 {
 		return nil

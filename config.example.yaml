@@ -137,6 +137,14 @@ codex:
 # When true, enable authentication for the WebSocket API (/v1/ws).
 ws-auth: true
 
+# When non-empty, only these public API request paths are exposed.
+# Requests to other public inference endpoints (such as /v1/chat/completions,
+# /v1/responses, /backend-api/codex/responses, /v1beta/*, /v1internal:*)
+# return 404. Health checks, management, and OAuth callback routes are unaffected.
+# public-api-allow-paths:
+#   - "/v1/images/generations"
+#   - "/v1/images/edits"
+
 # When true, enable Gemini CLI internal endpoints (/v1internal:*).
 # Default is false for safety.
 enable-gemini-cli-endpoint: false
